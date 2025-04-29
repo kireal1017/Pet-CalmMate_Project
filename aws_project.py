@@ -12,10 +12,16 @@ SUBSCRIBE_TOPIC = "give/snack"          # 입력받는 토픽
 RESPONSE_TOPIC = "today/snack/response" # 응답하는 토픽
 
 
+
+
+from awscrt import io, mqtt, auth, http
+from awsiot import mqtt_connection_builder
+# AWS 연동
+
 from datetime import datetime
 # 날짜 및 시간
 
-import time, json, threading
+import time, json, threading, subprocess
 import RPi.GPIO as GPIO
 # GPIO 제어 라이브러리
 
@@ -31,6 +37,34 @@ def snack_signal():
     time.sleep(3)                 # 1초 대기
     GPIO.output(LED, GPIO.LOW)    # LED 끄기
 
+def start_camera_stream():
+    """ 카메라 스트리밍 시작 """
+    pipeline = (
+        "gst-launch-1.0 autovideosrc "
+        "! videoconvert "
+        "! video/x-raw,format=I420,width=640,height=480 "
+        "! x264enc bframes=0 key-int-max=45 tune=zerolatency "
+        "byte-stream=true speed-preset=ultrafast "
+        "! h264parse "
+        "! video/x-h264,stream-format=avc,alignment=au,profile=baseline "
+        "! kvssink stream-name=rpi-video"
+    )
+    subprocess.Popen(pipeline, shell=True, executable="/bin/bash")
+    
+    # 로그 확인 (출력된 로그에서 'streaming started' 메시지를 찾음)
+    stdout, stderr = process.communicate()
+    if "streaming started" in stdout.decode() or "stream is ready" in stdout.decode():
+        print("스트리밍이 시작되었습니다.")
+    else:
+        print("스트리밍 시작 오류:", stderr.decode())
+
+def stop_camera_stream():
+    # 실행 중인 gst-launch 프로세스 종료
+    subprocess.run(["pkill", "gst-launch-1.0"])
+    print("카메라 스트리밍 종료")
+    
+#-------------------------------------------------------------
+
 # 메시지를 받았을 때 실행되는 콜백 함수
 def on_message_received(topic, payload, **kwargs):
     try:
@@ -41,6 +75,12 @@ def on_message_received(topic, payload, **kwargs):
         
         if data['message'] == "MQTT 간식 신호 발행 완료" and data.get('success') is True:
             threading.Thread(target=snack_signal).start()  # 스레드로 LED 켜기 <- 비동기 처리
+            
+        elif data['message'] == "MQTT camera on":  # 카메라 메시지 수신
+            start_camera_stream()  # 카메라 스트리밍 시작
+            
+        elif data['message'] == "MQTT camera off":  # 카메라 끄기
+            stop_camera_stream()  # 카메라 스트리밍 종료
         
         nowtime = datetime.now() #현재 시간 측정
         # 응답 JSON 구성
@@ -82,7 +122,7 @@ mqtt_connection.connect().result()
 print("connected")
 
 # 메시지 구독
-print(f"토픽 구독 중: {SUBSCRIBE_TOPIC}")
+print(f"구독 중인 토픽: {SUBSCRIBE_TOPIC}")
 
 mqtt_connection.subscribe(
     topic=SUBSCRIBE_TOPIC,
