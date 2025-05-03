@@ -12,8 +12,6 @@ SUBSCRIBE_TOPIC = "give/snack"          # 입력받는 토픽
 RESPONSE_TOPIC = "today/snack/response" # 응답하는 토픽
 
 
-
-
 from awscrt import io, mqtt, auth, http
 from awsiot import mqtt_connection_builder
 # AWS 연동
@@ -21,24 +19,28 @@ from awsiot import mqtt_connection_builder
 from datetime import datetime
 # 날짜 및 시간
 
-import time, json, threading, subprocess
-import RPi.GPIO as GPIO
-# GPIO 제어 라이브러리
-
-#--------------------------- GPIO setup ----------------------
-GPIO.setmode(GPIO.BCM)          # GPIO pin numbering
-GPIO.setup(17, GPIO.OUT)        # 17번 LED
-LED = 17
+import time, json, threading, subprocess, serial
 
 #-------------------------------------------------------------
     
-def snack_signal():
-    GPIO.output(LED, GPIO.HIGH)   # LED 켜기
-    time.sleep(3)                 # 1초 대기
-    GPIO.output(LED, GPIO.LOW)    # LED 끄기
+def snack_signal():                                     # 간식 주기 신호
+    """ 포트 연결 > 전송 > 포트 닫기 순으로 동작함 """
+    try:
+        ser = serial.Serial(PORT, BAUD, timeout=TIMEOUT)
+        time.sleep(2)
+        ser.write(bytes([0xF1]))
+    except serial.SerialException as e:
+        print(f"시리얼 전송 실패 {PORT}: {e}")
+    finally:
+        if 'ser' in locals() and ser.is_open:
+            ser.close()
+
+
+#-------------------------------------------------------------
 
 def start_camera_stream():
     """ 카메라 스트리밍 시작 """
+    '''
     pipeline = (
         "gst-launch-1.0 autovideosrc "
         "! videoconvert "
@@ -57,16 +59,21 @@ def start_camera_stream():
         print("스트리밍이 시작되었습니다.")
     else:
         print("스트리밍 시작 오류:", stderr.decode())
+    '''
+    print("카메라")
+ 
 
 def stop_camera_stream():
     # 실행 중인 gst-launch 프로세스 종료
     subprocess.run(["pkill", "gst-launch-1.0"])
     print("카메라 스트리밍 종료")
     
+
 #-------------------------------------------------------------
 
 # 메시지를 받았을 때 실행되는 콜백 함수
 def on_message_received(topic, payload, **kwargs):
+    print(f"[DEBUG] topic={topic}, retained={kwargs.get('is_retained')}, payload={payload}")
     try:
         # 받은 메시지 디코딩 및 JSON 파싱
         decoded = payload.decode()
@@ -138,15 +145,4 @@ try:
 except KeyboardInterrupt:
     print("연결 종료")
     mqtt_connection.disconnect().result()
-    GPIO.cleanup()
 
-'''
-try:
-    while True:
-        GPIO.output(LED, GPIO.HIGH) # LED 켜기
-        time.sleep(1) # 1초 대기
-        GPIO.output(LED, GPIO.LOW)
-        time.sleep(1)
-finally:
-    GPIO.cleanup()
-'''
