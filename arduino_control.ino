@@ -30,6 +30,7 @@ void setup() {
   
   snack_servo.attach(5);	// snack give motor
   camera_servo.attach(6);	//camera move motor
+  snack_servo.write(0);
 }
 
 void loop() {
